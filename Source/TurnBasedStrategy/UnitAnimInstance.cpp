@@ -2,6 +2,7 @@
 
 
 #include "UnitAnimInstance.h"
+#include "StatComponent.h"
 
 void UUnitAnimInstance::AnimNotify_AttackHit()
 {
@@ -82,6 +83,20 @@ void UUnitAnimInstance::PlayUnitHitMontage()
 		return;
 	}
 
-	Montage_Play(UnitMontage);
-	Montage_JumpToSection(FName("Hit01"));
+	APawn* owner = TryGetPawnOwner();
+	UStatComponent* stat = owner->FindComponentByClass<UStatComponent>();
+
+	float hp = stat->GetHP();
+
+	if (hp <= 0.0f)
+	{
+		Montage_Play(UnitMontage);
+		Montage_JumpToSection(FName("Death01"));
+	}
+	else
+	{
+		Montage_Play(UnitMontage);
+		Montage_JumpToSection(FName("Hit01"));
+	}
+
 }

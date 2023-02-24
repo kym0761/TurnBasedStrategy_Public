@@ -7,6 +7,8 @@
 #include "../UnitAnimInstance.h"
 #include "Kismet/KismetMathLibrary.h"
 #include "../UnitAction/UnitAttackActionComponent.h"
+#include "../StatComponent.h"
+
 // Sets default values
 AAttackManager::AAttackManager()
 {
@@ -29,67 +31,62 @@ void AAttackManager::Tick(float DeltaTime)
 
 }
 
-void AAttackManager::SetupAttackManager(AActor* InAttacker, AActor* InDefender)
+void AAttackManager::SetupAttackManager(AActor* Attacker, AActor* Defender)
 {
-	Attacker = InAttacker;
-	Defender = InDefender;
+	//Attacker = InAttacker;
+	//Defender = InDefender;
+
+	OrderToPlay.Empty();
+	OrderToPlay = CalculateAttackOrder(Attacker,Defender);
+
 }
 
 void AAttackManager::StartAttack()
 {
-	if (IsValid(Attacker))
+	FAttackOrder& currentOrder = OrderToPlay[0];
+
+	AActor* currentAttacker = currentOrder.Attacker;
+	AActor* currentDefender = currentOrder.Defender;
+
+	CurrentAttackActionComponent = currentAttacker->FindComponentByClass<UUnitAttackActionComponent>();
+
+	if (!IsValid(CurrentAttackActionComponent))
 	{
-		FRotator attackerLookRot = UKismetMathLibrary::FindLookAtRotation(Attacker->GetActorLocation(), Defender->GetActorLocation());
-		Attacker->SetActorRotation(attackerLookRot);
+		//!!경고 필요.
+	}
+
+
+	if (IsValid(currentAttacker))
+	{
+		FRotator attackerLookRot = UKismetMathLibrary::FindLookAtRotation(currentAttacker->GetActorLocation(), currentDefender->GetActorLocation());
+		currentAttacker->SetActorRotation(attackerLookRot);
 
 	}
 
-	if (IsValid(Defender))
+	if (IsValid(currentDefender))
 	{
-		FRotator defenderLookRot = UKismetMathLibrary::FindLookAtRotation(Defender->GetActorLocation(), Attacker->GetActorLocation());
-		Defender->SetActorRotation(defenderLookRot);
+		FRotator defenderLookRot = UKismetMathLibrary::FindLookAtRotation(currentDefender->GetActorLocation(), currentAttacker->GetActorLocation());
+		currentDefender->SetActorRotation(defenderLookRot);
 	}
-	
-	CurrentAttacker = nullptr;
-	CurrentDefender = nullptr;
 
-	OrderToPlay.Empty();
+	if (OrderToPlay.Num() > 0)
+	{
+		PlayAttack();
+	}
 
-	OrderToPlay = CalculateAttackOrder();
-
-	PlayAttack();
 }
 
 void AAttackManager::PlayAttack()
 {
-
-	if (OrderToPlay.Num() == 0)
-	{
-		FinishAttack();
-		return;
-	}
-
 	FAttackOrder& currentOrder = OrderToPlay[0];
 
-	CurrentAttacker = nullptr;
-	CurrentDefender = nullptr;
+	AActor* currentAttacker = currentOrder.Attacker;
+	AActor* currentDefender = currentOrder.Defender;
 
-	switch (currentOrder.AttackOrderType)
+	if (IsValid(currentAttacker) && IsValid(currentDefender))
 	{
-	case EAttackOrderType::Attack:
-		CurrentAttacker = Attacker;
-		CurrentDefender = Defender;
-		break;
-	case EAttackOrderType::Defend:
-		CurrentAttacker = Defender;
-		CurrentDefender = Attacker;
-		break;
-	}
-
-	if (IsValid(CurrentAttacker) && IsValid(CurrentDefender))
-	{
-		USkeletalMeshComponent* attackerMesh = CurrentAttacker->FindComponentByClass<USkeletalMeshComponent>();
-		USkeletalMeshComponent* defenderMesh = CurrentDefender->FindComponentByClass<USkeletalMeshComponent>();
+		USkeletalMeshComponent* attackerMesh = currentAttacker->FindComponentByClass<USkeletalMeshComponent>();
+		USkeletalMeshComponent* defenderMesh = currentDefender->FindComponentByClass<USkeletalMeshComponent>();
 
 		if (IsValid(attackerMesh) && IsValid(defenderMesh))
 		{
@@ -103,47 +100,49 @@ void AAttackManager::PlayAttack()
 				BindOnHit(defenderAnim);
 				BindOnHitEnd(defenderAnim);
 			
-				//UE_LOG(LogTemp, Warning, TEXT("Play Montage?"));
-				attackerAnim->PlayUnitAttackMontage();
 				bAttackerWaiting = false;
 				bDefenderWaiting = false;
+
+				//UE_LOG(LogTemp, Warning, TEXT("Play Montage?"));
+				attackerAnim->PlayUnitAttackMontage();
 			}
 		}
-	}
-
-	if (OrderToPlay.Num() > 0)
-	{
-		OrderToPlay.RemoveAt(0);
 	}
 }
 
 void AAttackManager::FinishAttack()
 {
-	UUnitAttackActionComponent* attackComponent = Attacker->FindComponentByClass<UUnitAttackActionComponent>();
-
-	if (IsValid(attackComponent))
+	if (IsValid(CurrentAttackActionComponent))
 	{
-		attackComponent->TakeAction(FGrid(0,0));
+		CurrentAttackActionComponent->TakeAction(FGrid(0,0));
 	}
 
-
 	//reset
-	Attacker = nullptr;
-	Defender = nullptr;
-	CurrentAttacker = nullptr;
-	CurrentDefender = nullptr;
 	bAttackerWaiting = false;
 	bDefenderWaiting = false;
+
 }
 
 void AAttackManager::OnAttackHit()
 {
-	if (!IsValid(CurrentDefender))
+	//Attacker의 공격을 맞았다면 Defender의 hit 애니메이션 재생함.
+
+	FAttackOrder& currentOrder = OrderToPlay[0];
+	AActor* currentDefender = currentOrder.Defender;
+
+	if (!IsValid(currentOrder.Defender) || !IsValid(currentOrder.Attacker))
 	{
 		return;
 	}
 
-	USkeletalMeshComponent* defenderMesh = CurrentDefender->FindComponentByClass<USkeletalMeshComponent>();
+	UGameplayStatics::ApplyDamage(currentOrder.Defender, currentOrder.Damage, nullptr, currentOrder.Attacker, UDamageType::StaticClass());
+
+	if (!IsValid(currentDefender))
+	{
+		return;
+	}
+
+	USkeletalMeshComponent* defenderMesh = currentOrder.Defender->FindComponentByClass<USkeletalMeshComponent>();
 	if (!IsValid(defenderMesh))
 	{
 		return;
@@ -167,6 +166,15 @@ void AAttackManager::OnAttackEnd()
 void AAttackManager::OnHit()
 {
 	//아마 데미지 받은 량이 나오는 Actor를 Spawn?
+
+	//FAttackOrder& currentOrder = OrderToPlay[0];
+	//if (!IsValid(currentOrder.Defender) || !IsValid(currentOrder.Attacker))
+	//{
+	//	return;
+	//}
+
+	//UGameplayStatics::ApplyDamage(currentOrder.Defender, currentOrder.Damage, nullptr, currentOrder.Attacker,UDamageType::StaticClass());
+
 }
 
 void AAttackManager::OnHitEnd()
@@ -175,14 +183,15 @@ void AAttackManager::OnHitEnd()
 	TryPlayNextOrder();
 }
 
-TArray<FAttackOrder> AAttackManager::CalculateAttackOrder()
+TArray<FAttackOrder> AAttackManager::CalculateAttackOrder(AActor* Attacker, AActor* Defender)
 {
-	TArray<FAttackOrder> attackOrders;
+	//현재 공격 Order는 임의로 공격자 우선 -> 방어자 반격임.
 
+	TArray<FAttackOrder> attackOrders;
 
 	if (!IsValid(Attacker) || !IsValid(Defender))
 	{
-		UE_LOG(LogTemp, Warning, TEXT("Attacker or Defender is Not Valid"));
+		UE_LOG(LogTemp, Warning, TEXT("Attacker or Defender is Not Valid - AAttackManager::CalculateAttackOrder()"));
 		return attackOrders;
 	}
 
@@ -194,7 +203,7 @@ TArray<FAttackOrder> AAttackManager::CalculateAttackOrder()
 
 	if (!IsValid(attackerStatComponent) || !IsValid(defenderStatComponent))
 	{
-		UE_LOG(LogTemp, Warning, TEXT("StatComponents are Not Valid"));
+		UE_LOG(LogTemp, Warning, TEXT("StatComponents are Not Valid - AAttackManager::CalculateAttackOrder()"));
 
 		return attackOrders;
 	}
@@ -203,16 +212,20 @@ TArray<FAttackOrder> AAttackManager::CalculateAttackOrder()
 	attack.AttackOrderType = EAttackOrderType::Attack;
 	int32 attackerDamage = attackerStatComponent->GetSTR();
 	attack.Damage = attackerDamage;
+	attack.Attacker = Attacker;
+	attack.Defender = Defender;
 
-	FAttackOrder defend;
-	defend.AttackOrderType = EAttackOrderType::Defend;
+	FAttackOrder counterAttack;
+	counterAttack.AttackOrderType = EAttackOrderType::Defend;
 	int32 defenerDamage = defenderStatComponent->GetSTR();
-	defend.Damage = defenerDamage;
+	counterAttack.Damage = defenerDamage;
+	counterAttack.Attacker = Defender;
+	counterAttack.Defender = Attacker;
 
 	attackOrders.Add(attack);
-	attackOrders.Add(defend);
+	attackOrders.Add(counterAttack);
 
-	return attackOrders;
+	return 	attackOrders;
 }
 
 AAttackManager* AAttackManager::GetAttackManager()
@@ -285,7 +298,53 @@ void AAttackManager::TryPlayNextOrder()
 {
 	if (bAttackerWaiting == true && bDefenderWaiting == true)
 	{
-		PlayAttack();
+		//Remove Finished Order
+		if (OrderToPlay.Num() > 0)
+		{
+			OrderToPlay.RemoveAt(0);
+		}
+
+		//누군가 죽었으면 이제 Attack 하지 않음.
+		if (OrderToPlay.Num() > 0)
+		{
+			FAttackOrder& currentOrder = OrderToPlay[0];
+
+			if (IsValid(currentOrder.Defender) && IsValid(currentOrder.Attacker))
+			{
+				UStatComponent* defenderStat = currentOrder.Defender->FindComponentByClass<UStatComponent>();
+				UStatComponent* attackerStat = currentOrder.Attacker->FindComponentByClass<UStatComponent>();
+
+				if (IsValid(defenderStat) && IsValid(attackerStat))
+				{
+					if (defenderStat->GetHP() <= 0.0f || attackerStat->GetHP() <= 0.0f)
+					{
+						OrderToPlay.Empty();
+					}
+				}
+			}
+		}
+
+
+		if (OrderToPlay.Num() > 0)
+		{
+			PlayAttack();
+		}
+		else
+		{
+			FinishAttack();
+		}
 	}
 }
 
+TArray<FAttackOrder> AAttackManager::GetAttackOrder() const
+{
+	return OrderToPlay;
+}
+
+FAttackOrder::FAttackOrder()
+{
+	AttackOrderType = EAttackOrderType::Attack;
+	Damage = 0;
+	Attacker = nullptr;
+	Defender = nullptr;
+}
