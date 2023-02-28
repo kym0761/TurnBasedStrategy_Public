@@ -4,8 +4,8 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
-#include "../Grid/Grid.h"
-#include "../Grid/GridVisual.h"
+#include "Grid/Grid.h"
+#include "Grid/GridVisual.h"
 #include "GridManager.generated.h"
 
 class AGridVisual;
@@ -109,5 +109,8 @@ public:
 	void AddUnitAtGrid(AUnitCharacter* Unit, const FGrid& GridValue);
 	void RemoveUnitAtGrid(AUnitCharacter* Unit, const FGrid& GridValue);
 	void MoveUnitGrid(AUnitCharacter* Unit, const FGrid& From, const FGrid& to);
+
+	TArray<UGridObject*> GetAllGridObjectThatHasUnit() const;
+	int32 CalculatePositionValue_ToMove(AUnitCharacter* Unit, const FGrid& Grid);
 
 };

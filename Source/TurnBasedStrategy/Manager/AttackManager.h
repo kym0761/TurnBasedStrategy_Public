@@ -50,15 +50,15 @@ public:
 private:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Attack", Meta = (AllowPrivateAccess = "true"))
-	TArray<FAttackOrder> OrderToPlay;
+		TArray<FAttackOrder> OrderToPlay;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Attack", Meta = (AllowPrivateAccess = "true"))
 		FAttackOrder CurrentAttackOrder;
 
-	UPROPERTY()
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Attack", Meta = (AllowPrivateAccess = "true"))
 		bool bAttackerWaiting = false;
 
-	UPROPERTY()
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Attack", Meta = (AllowPrivateAccess = "true"))
 		bool bDefenderWaiting = false;
 
 	UPROPERTY()
@@ -87,8 +87,6 @@ public:
 	UFUNCTION()
 		void OnHitEnd();
 
-	//TArray<FAttackOrder> CalculateAttackOrder();
-
 	TArray<FAttackOrder> CalculateAttackOrder(AActor* Attacker, AActor* Defender);
 
 	static AAttackManager* GetAttackManager();
@@ -103,4 +101,6 @@ public:
 
 
 	TArray<FAttackOrder> GetAttackOrder() const;
+
+	int32 CalculateGridValue_ToAttack(AActor* Attacker, AActor* Defender);
 };

@@ -2,9 +2,9 @@
 
 
 #include "UnitMoveActionComponent.h"
-#include "../UnitCharacter.h"
+#include "UnitCore/UnitCharacter.h"
 
-#include "../Manager/GridManager.h"
+#include "Manager/GridManager.h"
 #include "Kismet/GameplayStatics.h"
 #include "AIController.h"
 
@@ -336,4 +336,56 @@ void UUnitMoveActionComponent::OnActionEndFunc()
 void UUnitMoveActionComponent::OnActionSelectedFunc()
 {
 	Super::OnActionSelectedFunc();
+}
+
+FGrid UUnitMoveActionComponent::ThinkAIBestActionGrid()
+{
+	TArray<FGrid> grids = GetValidActionGridArray(); //이동할 수 있는 위치 전부.
+	TArray<FActionValueToken> actionValues;
+
+	AGridManager* gridManager = AGridManager::GetGridManager();
+	if (!IsValid(gridManager))
+	{
+		//불가.
+		return FGrid(-1, -1);
+	}
+
+	//아마도 적 유닛.
+	auto owner_Casted = Cast<AUnitCharacter>(GetOwner());
+	if (!IsValid(owner_Casted))
+	{
+		//불가.
+		return FGrid(-1, -1);
+	}
+
+	//이동 가능한 위치 전부 확인해서 해당 위치의 Value를 계산.
+	for (FGrid& grid : grids)
+	{
+		FActionValueToken actionValueToken;
+		actionValueToken.Grid = grid;
+		actionValueToken.ActionValue = gridManager->CalculatePositionValue_ToMove(owner_Casted, grid);
+
+		actionValues.Add(actionValueToken);
+	}
+
+	if (actionValues.Num() == 0)
+	{
+		//확인할 Grid가 없음.
+		return FGrid(-1, -1);
+	}
+
+	Algo::Sort(actionValues, [](FActionValueToken& a, FActionValueToken& b)
+		{
+			return a.ActionValue > b.ActionValue;
+		});
+
+	//계산된 Value에 대해서, 가장 값이 높은 (가장 상대와 가까울 수 있는) Grid를 선택.
+	FActionValueToken selectedActionValueToken = actionValues[0];
+
+	return selectedActionValueToken.Grid;
+}
+
+void UUnitMoveActionComponent::TestFunction()
+{
+	TakeAction(ThinkAIBestActionGrid());
 }

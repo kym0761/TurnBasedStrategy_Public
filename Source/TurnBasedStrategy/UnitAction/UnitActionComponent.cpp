@@ -2,9 +2,9 @@
 
 
 #include "UnitActionComponent.h"
-#include "../UnitCharacter.h"
+#include "UnitCore/UnitCharacter.h"
 #include "Kismet/GameplayStatics.h"
-#include "../UnitSelectPawn.h"
+#include "UnitSelectPawn.h"
 
 
 // Sets default values for this component's properties
@@ -137,5 +137,20 @@ void UUnitActionComponent::OnActionSelectedFunc()
 	APlayerController* playerController = UGameplayStatics::GetPlayerController(GetWorld(), 0);
 	AUnitSelectPawn* pawn = Cast<AUnitSelectPawn>(playerController->GetPawn());
 	pawn->SetPawnMode(EPawnMode::Action);
+}
+
+FGrid UUnitActionComponent::ThinkAIBestActionGrid()
+{
+	return FGrid();
+}
+
+void UUnitActionComponent::TestFunction()
+{
+	TakeAction(ThinkAIBestActionGrid());
+}
+
+void UUnitActionComponent::TestUnitAction()
+{
+	TestFunction();
 }
 

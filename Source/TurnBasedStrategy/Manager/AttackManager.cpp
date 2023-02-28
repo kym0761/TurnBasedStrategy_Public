@@ -2,12 +2,13 @@
 
 
 #include "AttackManager.h"
-#include "../StatComponent.h"
 #include "Kismet/GameplayStatics.h"
-#include "../UnitAnimInstance.h"
+#include "UnitCore/UnitAnimInstance.h"
 #include "Kismet/KismetMathLibrary.h"
-#include "../UnitAction/UnitAttackActionComponent.h"
-#include "../StatComponent.h"
+#include "UnitAction/UnitAttackActionComponent.h"
+#include "UnitCore/StatComponent.h"
+#include "UnitCore/UnitCharacter.h"
+#include "GridManager.h"
 
 // Sets default values
 AAttackManager::AAttackManager()
@@ -36,6 +37,11 @@ void AAttackManager::SetupAttackManager(AActor* Attacker, AActor* Defender)
 	//Attacker = InAttacker;
 	//Defender = InDefender;
 
+	if (!IsValid(Attacker) || !IsValid(Defender))
+	{
+		return;
+	}
+
 	OrderToPlay.Empty();
 	OrderToPlay = CalculateAttackOrder(Attacker,Defender);
 
@@ -43,10 +49,21 @@ void AAttackManager::SetupAttackManager(AActor* Attacker, AActor* Defender)
 
 void AAttackManager::StartAttack()
 {
+	if (OrderToPlay.Num() == 0)
+	{
+		FinishAttack();
+		return;
+	}
 	FAttackOrder& currentOrder = OrderToPlay[0];
 
 	AActor* currentAttacker = currentOrder.Attacker;
 	AActor* currentDefender = currentOrder.Defender;
+
+	if (!IsValid(currentAttacker) || !IsValid(currentDefender))
+	{
+		FinishAttack();
+		return;
+	}
 
 	CurrentAttackActionComponent = currentAttacker->FindComponentByClass<UUnitAttackActionComponent>();
 
@@ -120,6 +137,7 @@ void AAttackManager::FinishAttack()
 	//reset
 	bAttackerWaiting = false;
 	bDefenderWaiting = false;
+	CurrentAttackOrder = FAttackOrder();
 
 }
 
@@ -160,6 +178,7 @@ void AAttackManager::OnAttackHit()
 void AAttackManager::OnAttackEnd()
 {
 	bAttackerWaiting = true;
+	UE_LOG(LogTemp, Warning, TEXT("AAttackManager::OnAttackEnd()"));
 	TryPlayNextOrder();
 }
 
@@ -180,6 +199,7 @@ void AAttackManager::OnHit()
 void AAttackManager::OnHitEnd()
 {
 	bDefenderWaiting = true;
+	UE_LOG(LogTemp, Warning, TEXT("AAttackManager::OnHitEnd()"));
 	TryPlayNextOrder();
 }
 
@@ -217,13 +237,18 @@ TArray<FAttackOrder> AAttackManager::CalculateAttackOrder(AActor* Attacker, AAct
 
 	FAttackOrder counterAttack;
 	counterAttack.AttackOrderType = EAttackOrderType::Defend;
-	int32 defenerDamage = defenderStatComponent->GetSTR();
-	counterAttack.Damage = defenerDamage;
+	int32 defenderDamage = defenderStatComponent->GetSTR();
+	counterAttack.Damage = defenderDamage;
 	counterAttack.Attacker = Defender;
 	counterAttack.Defender = Attacker;
 
+	// 테스트 용도로 공/반/공/공 형식으로 공격함.
+	// 추후 SPD 값 혹은	보유 스킬에 따라 공격 횟수가 달라질 수 있음.
 	attackOrders.Add(attack);
 	attackOrders.Add(counterAttack);
+	attackOrders.Add(attack);
+	attackOrders.Add(attack);
+
 
 	return 	attackOrders;
 }
@@ -251,7 +276,7 @@ void AAttackManager::BindOnAttackHit(UUnitAnimInstance* AnimInst)
 	FScriptDelegate toBind;
 	toBind.BindUFunction(this, FName("OnAttackHit"));
 
-	AnimInst->BindToOnAttackHit(toBind);
+	AnimInst->BindTo_OnAttackHit(toBind);
 
 }
 
@@ -265,7 +290,7 @@ void AAttackManager::BindOnAttackEnd(UUnitAnimInstance* AnimInst)
 	FScriptDelegate toBind;
 	toBind.BindUFunction(this, FName("OnAttackEnd"));
 
-	AnimInst->BindToOnAttackEnd(toBind);
+	AnimInst->BindTo_OnAttackEnd(toBind);
 }
 
 void AAttackManager::BindOnHit(UUnitAnimInstance* AnimInst)
@@ -278,7 +303,7 @@ void AAttackManager::BindOnHit(UUnitAnimInstance* AnimInst)
 	FScriptDelegate toBind;
 	toBind.BindUFunction(this, FName("OnHit"));
 
-	AnimInst->BindToOnHit(toBind);
+	AnimInst->BindTo_OnHit(toBind);
 }
 
 void AAttackManager::BindOnHitEnd(UUnitAnimInstance* AnimInst)
@@ -291,12 +316,12 @@ void AAttackManager::BindOnHitEnd(UUnitAnimInstance* AnimInst)
 	FScriptDelegate toBind;
 	toBind.BindUFunction(this, FName("OnHitEnd"));
 
-	AnimInst->BindToHitEnd(toBind);
+	AnimInst->BindTo_OnHitEnd(toBind);
 }
 
 void AAttackManager::TryPlayNextOrder()
 {
-	if (bAttackerWaiting == true && bDefenderWaiting == true)
+	if (bAttackerWaiting && bDefenderWaiting)
 	{
 		//Remove Finished Order
 		if (OrderToPlay.Num() > 0)
@@ -339,6 +364,60 @@ void AAttackManager::TryPlayNextOrder()
 TArray<FAttackOrder> AAttackManager::GetAttackOrder() const
 {
 	return OrderToPlay;
+}
+
+int32 AAttackManager::CalculateGridValue_ToAttack(AActor* Attacker, AActor* Defender)
+{
+	//Unit : 팀 분간 필요.
+    //Grid : Test할 위치.
+
+	if (!IsValid(Attacker) || !IsValid(Defender))
+	{
+		return -1;
+	}
+
+	TArray<FAttackOrder> attackOrders = CalculateAttackOrder(Attacker, Defender);
+
+	UStatComponent* attackerStatComponent =
+		Attacker->FindComponentByClass<UStatComponent>();
+
+	UStatComponent* defenderStatComponent =
+		Defender->FindComponentByClass<UStatComponent>();
+
+	if (!IsValid(attackerStatComponent) || !IsValid(defenderStatComponent))
+	{
+		return -1;
+	}
+
+	float attackerHP = attackerStatComponent->GetHP();
+	float defenderHP = defenderStatComponent->GetHP();
+
+	for (auto attackOrder : attackOrders)
+	{
+		switch (attackOrder.AttackOrderType)
+		{
+		case EAttackOrderType::Attack:
+			attackerHP -= attackOrder.Damage;
+			break;
+		case EAttackOrderType::Defend:
+			defenderHP -= attackOrder.Damage;
+			break;
+		}
+	}
+
+	//AttackerHP가 많을수록 점수가 높음. DefenderHP가 적을수록 점수가 높음.
+
+	float valueScore = 0.0f;
+
+	float counterAttackValue = 100 * attackerHP / attackerStatComponent->GetMaxHP();
+
+	valueScore += FMath::Clamp<int32>(counterAttackValue, 0.0f, 100.0f);
+
+	float attackValue = 100* (defenderStatComponent->GetMaxHP() - defenderHP) / defenderStatComponent->GetMaxHP();
+
+	valueScore += FMath::Clamp<int32>(attackValue, 0.0f, 100.0f);
+
+	return (int32)valueScore;
 }
 
 FAttackOrder::FAttackOrder()
